@@ -86,7 +86,7 @@ proc initGenesis(vc: ValidatorClientRef): Future[RestGenesis] {.async.} =
 proc initValidators(vc: ValidatorClientRef): Future[bool] {.async.} =
   info "Initializaing validators", path = vc.config.validatorsDir()
   var duplicates: seq[ValidatorPubKey]
-  for keystore in listLoadableKeystores(vc.config):
+  for keystore in listLoadableKeystores(vc.config, vc.keystoreCache):
     let pubkey = keystore.pubkey
     if pubkey in duplicates:
       warn "Duplicate validator key found", validator_pubkey = pubkey
@@ -214,7 +214,8 @@ proc new*(T: type ValidatorClientRef,
       indicesAvailable: newAsyncEvent(),
       dynamicFeeRecipientsStore: newClone(DynamicFeeRecipientsStore.init()),
       sigintHandleFut: waitSignal(SIGINT),
-      sigtermHandleFut: waitSignal(SIGTERM)
+      sigtermHandleFut: waitSignal(SIGTERM),
+      keystoreCache: KeystoreCacheRef.init()
     )
   else:
     ValidatorClientRef(
@@ -228,7 +229,8 @@ proc new*(T: type ValidatorClientRef,
       doppelExit: newAsyncEvent(),
       dynamicFeeRecipientsStore: newClone(DynamicFeeRecipientsStore.init()),
       sigintHandleFut: newFuture[void]("sigint_placeholder"),
-      sigtermHandleFut: newFuture[void]("sigterm_placeholder")
+      sigtermHandleFut: newFuture[void]("sigterm_placeholder"),
+      keystoreCache: KeystoreCacheRef.init()
     )
 
 proc asyncInit(vc: ValidatorClientRef): Future[ValidatorClientRef] {.async.} =

@@ -643,8 +643,6 @@ proc init*(T: type BeaconNode,
     else:
       nil
 
-  let keystoreCache = KeystoreCacheRef.init()
-
   let node = BeaconNode(
     nickname: nickname,
     graffitiBytes: if config.graffiti.isSome: config.graffiti.get
@@ -659,7 +657,7 @@ proc init*(T: type BeaconNode,
     restServer: restServer,
     keymanagerHost: keymanagerHost,
     keymanagerServer: keymanagerInitResult.server,
-    keystoreCache: keystoreCache,
+    keystoreCache: KeystoreCacheRef.init(),
     eventBus: eventBus,
     gossipState: {},
     blocksGossipState: {},

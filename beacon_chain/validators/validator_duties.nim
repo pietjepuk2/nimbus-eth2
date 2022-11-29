@@ -106,7 +106,8 @@ proc getValidator*(validators: auto,
                                validator: validators[idx])
 
 proc addValidators*(node: BeaconNode) =
-  debug "Loading validators", validatorsDir = node.config.validatorsDir()
+  debug "Loading validators", validatorsDir = node.config.validatorsDir(),
+                keystore_cache_available = not(isNil(node.keystoreCache))
   let
     epoch = node.currentSlot().epoch
   for keystore in listLoadableKeystores(node.config, node.keystoreCache):

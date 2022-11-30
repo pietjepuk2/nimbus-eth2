@@ -321,6 +321,8 @@ proc asyncRun*(vc: ValidatorClientRef) {.async.} =
   var doppelEventFut = vc.doppelExit.wait()
   try:
     vc.runSlotLoopFut = runSlotLoop(vc, vc.beaconClock.now(), onSlotStart)
+    vc.runKeystoreCachePruningLoopFut =
+      runKeystorecachePruningLoop(vc.keystoreCache)
     discard await race(vc.runSlotLoopFut, doppelEventFut)
     if not(vc.runSlotLoopFut.finished()):
       notice "Received shutdown event, exiting"
@@ -344,6 +346,8 @@ proc asyncRun*(vc: ValidatorClientRef) {.async.} =
   var pending: seq[Future[void]]
   if not(vc.runSlotLoopFut.finished()):
     pending.add(vc.runSlotLoopFut.cancelAndWait())
+  if not(vc.runKeystoreCachePruningLoopFut.finished()):
+    pending.add(vc.runKeystoreCachePruningLoopFut.cancelAndWait())
   if not(doppelEventFut.finished()):
     pending.add(doppelEventFut.cancelAndWait())
   debug "Stopping running services"

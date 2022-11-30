@@ -1595,6 +1595,7 @@ proc run(node: BeaconNode) {.raises: [Defect, CatchableError].} =
   asyncSpawn runSlotLoop(node, wallTime, onSlotStart)
   asyncSpawn runOnSecondLoop(node)
   asyncSpawn runQueueProcessingLoop(node.blockProcessor)
+  asyncSpawn runKeystoreCachePruningLoop(node.keystoreCache)
 
   ## Ctrl+C handling
   proc controlCHandler() {.noconv.} =

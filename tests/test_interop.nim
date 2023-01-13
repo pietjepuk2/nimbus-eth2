@@ -13,6 +13,9 @@ import
   ../beacon_chain/spec/[eth2_merkleization, beaconstate],
   ../beacon_chain/spec/datatypes/base
 
+## TODO: Is the interop module still relevant?
+##       Consider removing it.
+
 # Interop test yaml, found here:
 # https://github.com/ethereum/eth2.0-pm/blob/a0b9d22fad424574b1307828f867b30237758468/interop/mocked_start/keygen_10_validators.yaml
 

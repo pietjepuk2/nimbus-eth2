@@ -253,7 +253,7 @@ type
     finalized_checkpoint*: Checkpoint
 
     # Inactivity
-    inactivity_scores*: HashList[uint64, Limit VALIDATOR_REGISTRY_LIMIT]
+    inactivity_scores*: InactivityScores
 
     # Light client sync committees
     current_sync_committee*: SyncCommittee
@@ -276,6 +276,7 @@ type
   BeaconStateRef* = ref BeaconState not nil
   NilableBeaconStateRef* = ref BeaconState
 
+  # TODO: There should be only a single generic HashedBeaconState definition
   HashedBeaconState* = object
     data*: BeaconState
     root*: Eth2Digest # hash_tree_root(data)
@@ -473,6 +474,10 @@ type
   BlockParams = object
     parentHash*: string
     timestamp*: string
+
+# TODO: There should be only a single generic HashedBeaconState definition
+func initHashedBeaconState*(s: BeaconState): HashedBeaconState =
+  HashedBeaconState(data: s)
 
 func shortLog*(v: SomeBeaconBlock): auto =
   (

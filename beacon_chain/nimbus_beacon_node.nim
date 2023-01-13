@@ -21,7 +21,7 @@ import
   ./spec/[deposit_snapshots, engine_authentication, weak_subjectivity],
   ./validators/[keystore_management, validator_duties],
   "."/[
-    beacon_node, beacon_node_light_client, deposits, interop,
+    beacon_node, beacon_node_light_client, deposits,
     nimbus_binary_common, statusbar, trusted_node_sync, wallets]
 
 when defined(posix):
@@ -454,7 +454,7 @@ proc init*(T: type BeaconNode,
       newClone(readSszForkedHashedBeaconState(
         cfg, readAllBytes(checkpointStatePath).tryGet()))
     except SszError as err:
-      fatal "Checkpoint state deserialization failed",
+      fatal "Checkpoint state loading failed",
             err = formatMsg(err, checkpointStatePath)
       quit 1
     except CatchableError as err:
@@ -468,6 +468,20 @@ proc init*(T: type BeaconNode,
     tmp
   else:
     nil
+
+  if config.finalizedDepositTreeSnapshot.isSome:
+    let
+      depositTreeSnapshotPath = config.finalizedDepositTreeSnapshot.get.string
+      depositTreeSnapshot = try:
+        SSZ.loadFile(depositTreeSnapshotPath, DepositTreeSnapshot)
+      except SszError as err:
+        fatal "Deposit tree snapshot loading failed",
+              err = formatMsg(err, depositTreeSnapshotPath)
+        quit 1
+      except CatchableError as err:
+        fatal "Failed to read deposit tree snapshot file", err = err.msg
+        quit 1
+    db.putDepositTreeSnapshot(depositTreeSnapshot)
 
   let optJwtSecret = rng[].loadJwtSecret(config, allowCreate = false)
 
@@ -670,8 +684,7 @@ proc init*(T: type BeaconNode,
       # Delay first call by that time to allow for EL syncing to begin; it can
       # otherwise generate an EL warning by claiming a zero merge block.
       Moment.now + chronos.seconds(60),
-    dynamicFeeRecipientsStore: newClone(DynamicFeeRecipientsStore.init()),
-    mergeAtEpoch: config.mergeAtEpoch.Epoch)
+    dynamicFeeRecipientsStore: newClone(DynamicFeeRecipientsStore.init()))
 
   node.initLightClient(
     rng, cfg, dag.forkDigests, getBeaconTime, dag.genesis_validators_root)
@@ -705,7 +718,7 @@ func subnetLog(v: BitArray): string =
   $toSeq(v.oneIndices())
 
 func forkDigests(node: BeaconNode): auto =
-  let forkDigestsArray: array[BeaconStateFork, auto] = [
+  let forkDigestsArray: array[ConsensusFork, auto] = [
     node.dag.forkDigests.phase0,
     node.dag.forkDigests.altair,
     node.dag.forkDigests.bellatrix,
@@ -786,11 +799,11 @@ proc updateBlocksGossipStatus*(
     # Individual forks added / removed
     discard
 
-  template blocksTopic(fork: BeaconStateFork, forkDigest: ForkDigest): auto =
+  template blocksTopic(fork: ConsensusFork, forkDigest: ForkDigest): auto =
     case fork
-    of BeaconStateFork.Phase0 .. BeaconStateFork.Capella:
+    of ConsensusFork.Phase0 .. ConsensusFork.Capella:
       getBeaconBlocksTopic(forkDigest)
-    of BeaconStateFork.EIP4844:
+    of ConsensusFork.EIP4844:
       getBeaconBlockAndBlobsSidecarTopic(forkDigest)
 
   let
@@ -844,7 +857,7 @@ func hasSyncPubKey(node: BeaconNode, epoch: Epoch): auto =
 
 func getCurrentSyncCommiteeSubnets(node: BeaconNode, epoch: Epoch): SyncnetBits =
   let syncCommittee = withState(node.dag.headState):
-    when stateFork >= BeaconStateFork.Altair:
+    when stateFork >= ConsensusFork.Altair:
       forkyState.data.current_sync_committee
     else:
       return static(default(SyncnetBits))
@@ -853,7 +866,7 @@ func getCurrentSyncCommiteeSubnets(node: BeaconNode, epoch: Epoch): SyncnetBits 
 
 func getNextSyncCommitteeSubnets(node: BeaconNode, epoch: Epoch): SyncnetBits =
   let syncCommittee = withState(node.dag.headState):
-    when stateFork >= BeaconStateFork.Altair:
+    when stateFork >= ConsensusFork.Altair:
       forkyState.data.next_sync_committee
     else:
       return static(default(SyncnetBits))
@@ -872,7 +885,7 @@ func getSyncCommitteeSubnets(node: BeaconNode, epoch: Epoch): SyncnetBits =
   # committee period begins, in which case `epochsToNextSyncPeriod` is none.
   if  epochsToSyncPeriod.isNone or
       node.dag.cfg.stateForkAtEpoch(epoch + epochsToSyncPeriod.get) <
-        BeaconStateFork.Altair:
+        ConsensusFork.Altair:
     return subnets
 
   subnets + node.getNextSyncCommitteeSubnets(epoch)
@@ -1062,7 +1075,7 @@ proc updateGossipStatus(node: BeaconNode, slot: Slot) {.async.} =
 
   let forkDigests = node.forkDigests()
 
-  const removeMessageHandlers: array[BeaconStateFork, auto] = [
+  const removeMessageHandlers: array[ConsensusFork, auto] = [
     removePhase0MessageHandlers,
     removeAltairMessageHandlers,
     removeAltairMessageHandlers,  # bellatrix (altair handlers, different forkDigest)
@@ -1073,7 +1086,7 @@ proc updateGossipStatus(node: BeaconNode, slot: Slot) {.async.} =
   for gossipFork in oldGossipForks:
     removeMessageHandlers[gossipFork](node, forkDigests[gossipFork])
 
-  const addMessageHandlers: array[BeaconStateFork, auto] = [
+  const addMessageHandlers: array[ConsensusFork, auto] = [
     addPhase0MessageHandlers,
     addAltairMessageHandlers,
     addAltairMessageHandlers,  # bellatrix (altair handlers, different forkDigest)
@@ -1871,69 +1884,6 @@ proc doRunBeaconNode(config: var BeaconNodeConf, rng: ref HmacDrbgContext) {.rai
   else:
     node.start()
 
-proc doCreateTestnet*(config: BeaconNodeConf, rng: var HmacDrbgContext) {.raises: [Defect, CatchableError].} =
-  let launchPadDeposits = try:
-    Json.loadFile(config.testnetDepositsFile.string, seq[LaunchPadDeposit])
-  except SerializationError as err:
-    error "Invalid LaunchPad deposits file",
-          err = formatMsg(err, config.testnetDepositsFile.string)
-    quit 1
-
-  var deposits: seq[DepositData]
-  for i in 0 ..< launchPadDeposits.len:
-    deposits.add(launchPadDeposits[i] as DepositData)
-
-  let
-    startTime = uint64(times.toUnix(times.getTime()) + config.genesisOffset)
-    outGenesis = config.outputGenesis.string
-    eth1Hash = if config.web3Urls.len == 0: eth1BlockHash
-               else: (waitFor getEth1BlockHash(
-                 config.web3Urls[0], blockId("latest"),
-                 rng.loadJwtSecret(config, allowCreate = true))).asEth2Digest
-    cfg = getRuntimeConfig(config.eth2Network)
-  var
-    initialState = newClone(initialize_beacon_state_from_eth1(
-      cfg, eth1Hash, startTime, deposits, {skipBlsValidation}))
-
-  # https://github.com/ethereum/eth2.0-pm/tree/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start#create-genesis-state
-  initialState.genesis_time = startTime
-
-  doAssert initialState.validators.len > 0
-
-  let outGenesisExt = splitFile(outGenesis).ext
-  if cmpIgnoreCase(outGenesisExt, ".json") == 0:
-    Json.saveFile(outGenesis, initialState, pretty = true)
-    echo "Wrote ", outGenesis
-
-  let outSszGenesis = outGenesis.changeFileExt "ssz"
-  SSZ.saveFile(outSszGenesis, initialState[])
-  echo "Wrote ", outSszGenesis
-
-  let bootstrapFile = config.outputBootstrapFile.string
-  if bootstrapFile.len > 0:
-    type MetaData = altair.MetaData
-    let
-      networkKeys = getPersistentNetKeys(rng, config)
-
-      netMetadata = MetaData()
-      forkId = getENRForkID(
-        cfg,
-        initialState[].slot.epoch,
-        initialState[].genesis_validators_root)
-      bootstrapEnr = enr.Record.init(
-        1, # sequence number
-        networkKeys.seckey.asEthKey,
-        some(config.bootstrapAddress),
-        some(config.bootstrapPort),
-        some(config.bootstrapPort),
-        [
-          toFieldPair(enrForkIdField, SSZ.encode(forkId)),
-          toFieldPair(enrAttestationSubnetsField, SSZ.encode(netMetadata.attnets))
-        ])
-
-    writeFile(bootstrapFile, bootstrapEnr.tryGet().toURI)
-    echo "Wrote ", bootstrapFile
-
 proc doRecord(config: BeaconNodeConf, rng: var HmacDrbgContext) {.
     raises: [Defect, CatchableError].} =
   case config.recordCmd:
@@ -2031,7 +1981,6 @@ proc handleStartUpCmd(config: var BeaconNodeConf) {.raises: [Defect, CatchableEr
   let rng = keys.newRng()
 
   case config.cmd
-  of BNStartUpCmd.createTestnet: doCreateTestnet(config, rng[])
   of BNStartUpCmd.noCommand: doRunBeaconNode(config, rng)
   of BNStartUpCmd.deposits: doDeposits(config, rng[])
   of BNStartUpCmd.wallets: doWallets(config, rng[])

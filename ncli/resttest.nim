@@ -839,6 +839,8 @@ proc failure(t: typedesc[TestResult], code: TestResultKind,
 proc success(t: typedesc[TestResult], times: array[4, Duration]): TestResult =
   TestResult(kind: TestResultKind.ValidationSuccess, times: times)
 
+import stew/byteutils
+
 proc runTest(conn: HttpConnectionRef, uri: Uri,
              rule: JsonNode, workerIndex: int,
              testIndex: int): Future[TestResult] {.async.} =
@@ -969,6 +971,8 @@ proc runTest(conn: HttpConnectionRef, uri: Uri,
           if not(res2):
             res.incl(HeadersValidationFailure)
           if not(res3):
+            echo "BODY EXPECT", bodyExpect
+            echo string.fromBytes(dataBuf)
             res.incl(BodyValidationFailure)
           res
       return TestResult.failure(TestResultKind.ValidationError, times = times,

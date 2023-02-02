@@ -423,7 +423,6 @@ func latestCandidateBlock(chain: Eth1Chain, periodStart: uint64): Eth1Block =
   for i in countdown(chain.blocks.len - 1, 0):
     let blk = chain.blocks[i]
     if is_candidate_block(chain.cfg, blk, periodStart):
-      info "Returning latest candidate block"
       return blk
 
 proc popFirst(chain: var Eth1Chain) =
@@ -999,6 +998,9 @@ proc getBlockProposalData*(chain: var Eth1Chain,
   else:
     0
 
+  let latestBlock = chain.latestCandidateBlock(periodStart)
+  info "PIETJE 2: Latest candidate block", latestBlock = latestBlock
+
   if otherVotesCountTable.len > 0:
     let (winningVote, votes) = otherVotesCountTable.largest
     info "Voting on eth1 head with majority", votes
@@ -1007,7 +1009,6 @@ proc getBlockProposalData*(chain: var Eth1Chain,
       pendingDepositsCount = winningVote.deposit_count - stateDepositIdx
 
   else:
-    let latestBlock = chain.latestCandidateBlock(periodStart)
     if latestBlock == nil:
       info "No acceptable eth1 votes and no recent candidates. Voting no change"
       result.vote = getStateField(state, eth1_data)
@@ -1536,7 +1537,8 @@ proc startEth1Syncing(m: Eth1Monitor, delayBeforeStart: Duration) {.async.} =
         continue
 
       let earliestBlockOfInterest = m.earliestBlockOfInterest()
-      info "Earliest block of interest"
+      info "Earliest block of interest", earliestBlockOfInterest=earliestBlockOfInterest
+
       await m.syncBlockRange(eth1SyncedTo + 1,
                              targetBlock,
                              earliestBlockOfInterest)

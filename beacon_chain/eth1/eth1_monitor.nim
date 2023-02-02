@@ -423,6 +423,7 @@ func latestCandidateBlock(chain: Eth1Chain, periodStart: uint64): Eth1Block =
   for i in countdown(chain.blocks.len - 1, 0):
     let blk = chain.blocks[i]
     if is_candidate_block(chain.cfg, blk, periodStart):
+      info "Returning latest candidate block"
       return blk
 
 proc popFirst(chain: var Eth1Chain) =
@@ -472,7 +473,7 @@ template awaitWithRetries*[T](lazyFutExpr: Future[T],
     elif f.failed:
       when not (f.error of CatchableError):
         static: doAssert false, "f.error not CatchableError"
-      debug "Web3 request failed", req = reqType, err = f.error.msg
+      info "Web3 request failed", req = reqType, err = f.error.msg
       inc failed_web3_requests
     else:
       break
@@ -493,10 +494,10 @@ proc close(p: Web3DataProviderRef): Future[void] {.async.} =
     try:
       awaitWithRetries(p.blockHeadersSubscription.unsubscribe())
     except CatchableError:
-      debug "Failed to clean up block headers subscription properly"
+      info "Failed to clean up block headers subscription properly"
 
   awaitWithTimeout(p.web3.close(), 30.seconds):
-    debug "Failed to close data provider in time"
+    info "Failed to close data provider in time"
 
 proc getBlockByHash(p: Web3DataProviderRef, hash: BlockHash):
                     Future[BlockObject] =
@@ -654,7 +655,7 @@ proc exchangeTransitionConfiguration*(p: Eth1Monitor): Future[EtcStatus] {.async
   # Eth1 monitor can recycle connections without (external) warning; at least,
   # don't crash.
   if p.isNil:
-    debug "exchangeTransitionConfiguration: nil Eth1Monitor"
+    info "exchangeTransitionConfiguration: nil Eth1Monitor"
     return EtcStatus.exchangeError
 
   let dataProvider = p.dataProvider
@@ -803,7 +804,7 @@ when hasDepositRootChecks:
       else:
         result = DepositRootIncorrect
     except CatchableError as err:
-      debug "Failed to fetch deposits root",
+      info "Failed to fetch deposits root",
         blockNumber = blk.number,
         err = err.msg
       result = DepositRootUnavailable
@@ -816,7 +817,7 @@ when hasDepositRootChecks:
       elif blk.depositCount != fetchedCount:
         result = DepositCountIncorrect
     except CatchableError as err:
-      debug "Failed to fetch deposits count",
+      info "Failed to fetch deposits count",
             blockNumber = blk.number,
             err = err.msg
       result = DepositCountUnavailable
@@ -855,7 +856,7 @@ proc pruneOldBlocks(chain: var Eth1Chain, depositIndex: uint64) =
     eth1_finalized_head.set lastBlock.number.toGaugeValue
     eth1_finalized_deposits.set lastBlock.depositCount.toGaugeValue
 
-    debug "Eth1 blocks pruned",
+    info "Eth1 blocks pruned",
            newTailBlock = lastBlock.hash,
            depositsCount = lastBlock.depositCount
 
@@ -921,7 +922,7 @@ proc trackFinalizedState(chain: var Eth1Chain,
   ## to the finalization point.
 
   if chain.blocks.len == 0:
-    debug "Eth1 chain not initialized"
+    info "Eth1 chain not initialized"
     return false
 
   let latest = chain.blocks.peekLast
@@ -981,7 +982,7 @@ proc getBlockProposalData*(chain: var Eth1Chain,
        is_candidate_block(chain.cfg, eth1Block, periodStart):
       otherVotesCountTable.inc vote
     else:
-      debug "Ignoring eth1 vote",
+      info "Ignoring eth1 vote",
             root = vote.block_hash,
             deposits = vote.deposit_count,
             depositsRoot = vote.deposit_root,
@@ -1000,7 +1001,7 @@ proc getBlockProposalData*(chain: var Eth1Chain,
 
   if otherVotesCountTable.len > 0:
     let (winningVote, votes) = otherVotesCountTable.largest
-    debug "Voting on eth1 head with majority", votes
+    info "Voting on eth1 head with majority", votes
     result.vote = winningVote
     if uint64((votes + 1) * 2) > SLOTS_PER_ETH1_VOTING_PERIOD:
       pendingDepositsCount = winningVote.deposit_count - stateDepositIdx
@@ -1008,10 +1009,10 @@ proc getBlockProposalData*(chain: var Eth1Chain,
   else:
     let latestBlock = chain.latestCandidateBlock(periodStart)
     if latestBlock == nil:
-      debug "No acceptable eth1 votes and no recent candidates. Voting no change"
+      info "No acceptable eth1 votes and no recent candidates. Voting no change"
       result.vote = getStateField(state, eth1_data)
     else:
-      debug "No acceptable eth1 votes. Voting for latest candidate"
+      info "No acceptable eth1 votes. Voting for latest candidate"
       result.vote = latestBlock.toVoteData
 
   if pendingDepositsCount > 0:
@@ -1214,7 +1215,7 @@ proc doStop(m: Eth1Monitor) {.async.} =
 
   if m.dataProvider != nil:
     awaitWithTimeout(m.dataProvider.close(), 30.seconds):
-      debug "Failed to close data provider in time"
+      info "Failed to close data provider in time"
     m.dataProvider = nil
 
 proc ensureDataProvider*(m: Eth1Monitor) {.async.} =
@@ -1270,7 +1271,7 @@ proc syncBlockRange(m: Eth1Monitor,
       maxBlockNumberRequested =
         min(toBlock, currentBlock + m.blocksPerLogsRequest - 1)
 
-      debug "Obtaining deposit log events",
+      info "Obtaining deposit log events",
             fromBlock = currentBlock,
             toBlock = maxBlockNumberRequested,
             backoff
@@ -1290,7 +1291,7 @@ proc syncBlockRange(m: Eth1Monitor,
             raise newException(DataProviderTimeout,
               "Request time out while obtaining json logs")
         except CatchableError as err:
-          debug "Request for deposit logs failed", err = err.msg
+          info "Request for deposit logs failed", err = err.msg
           inc failed_web3_requests
           backoff = (backoff * 3) div 2
           m.blocksPerLogsRequest = m.blocksPerLogsRequest div 2
@@ -1314,7 +1315,7 @@ proc syncBlockRange(m: Eth1Monitor,
       if blk.number > fullSyncFromBlock:
         let lastBlock = m.depositsChain.blocks.peekLast
         for n in max(lastBlock.number + 1, fullSyncFromBlock) ..< blk.number:
-          debug "Obtaining block without deposits", blockNum = n
+          info "Obtaining block without deposits", blockNum = n
           let blockWithoutDeposits = awaitWithRetries(
             m.dataProvider.getBlockByNumber(n))
 
@@ -1335,7 +1336,7 @@ proc syncBlockRange(m: Eth1Monitor,
         DepositRootUnavailable
 
       when hasDepositRootChecks:
-        debug "Deposit contract state verified",
+        info "Deposit contract state verified",
               status = $status,
               ourCount = lastBlock.depositCount,
               ourRoot = lastBlock.depositRoot
@@ -1434,7 +1435,7 @@ proc startEth1Syncing(m: Eth1Monitor, delayBeforeStart: Duration) {.async.} =
     except CatchableError as exc:
       # Typically because it's not synced through EIP-155, assuming this Web3
       # endpoint has been otherwise working.
-      debug "startEth1Syncing: eth_chainId failed: ",
+      info "startEth1Syncing: eth_chainId failed: ",
         error = exc.msg
 
   var mustUsePolling = m.forcePolling or
@@ -1485,7 +1486,7 @@ proc startEth1Syncing(m: Eth1Monitor, delayBeforeStart: Duration) {.async.} =
     eth1_finalized_deposits.set(
       m.depositsChain.finalizedDepositsMerkleizer.getChunkCount.toGaugeValue)
 
-    debug "Starting Eth1 syncing", `from` = shortLog(m.depositsChain.blocks[^1])
+    info "Starting Eth1 syncing", `from` = shortLog(m.depositsChain.blocks[^1])
 
   var didPollOnce = false
   while true:
@@ -1535,6 +1536,7 @@ proc startEth1Syncing(m: Eth1Monitor, delayBeforeStart: Duration) {.async.} =
         continue
 
       let earliestBlockOfInterest = m.earliestBlockOfInterest()
+      info "Earliest block of interest"
       await m.syncBlockRange(eth1SyncedTo + 1,
                              targetBlock,
                              earliestBlockOfInterest)

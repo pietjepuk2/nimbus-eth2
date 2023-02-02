@@ -972,6 +972,7 @@ proc getBlockProposalData*(chain: var Eth1Chain,
                                                   finalizedStateDepositIndex,
                                                   blockProposalExpected = true)
 
+  info "PIETJE 3: Voting period start", periodStart = periodStart
   var otherVotesCountTable = initCountTable[Eth1Data]()
   for vote in getStateField(state, eth1_data_votes):
     let eth1Block = chain.findBlock(vote)

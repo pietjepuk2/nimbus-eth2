@@ -999,7 +999,10 @@ proc getBlockProposalData*(chain: var Eth1Chain,
     0
 
   let latestBlock = chain.latestCandidateBlock(periodStart)
-  info "PIETJE 2: Latest candidate block", latestBlock = latestBlock
+  if latestBlock == nil:
+    info "PIETJE 2: Latest candidate block is nil?", latestBlock.hash = latestBlock.hash
+  else:
+    info "PIETJE 2: Latest candidate block", latestBlock.hash = latestBlock.hash
 
   if otherVotesCountTable.len > 0:
     let (winningVote, votes) = otherVotesCountTable.largest
